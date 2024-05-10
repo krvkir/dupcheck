@@ -1,0 +1,3 @@
+#!/bin/bash
+cfgdir=$HOME/.config/dupcheck
+dupcheck_cli.py --mode check "${cfgdir}/db.sqlite" "$1" 2>/dev/null

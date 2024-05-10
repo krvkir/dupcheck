@@ -1,6 +1,8 @@
 import os
 import hashlib
 import sqlite3
+import logging
+from typing import List
 from concurrent.futures import ThreadPoolExecutor
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -67,23 +69,21 @@ def process_central_directory(db_path: str, dir_path: str, max_workers: int=4):
             executor.map(lambda p: process_file(db_path, p), file_paths)
 
 
+def check_file(db_path: str, file_path: str):
+    """Check a file for duplicates and print the result."""
+    duplicates = check_for_duplicates(db_path, file_path)
+    if not duplicates:
+        print(f"{file_path} is unique!")
+        # for dup in duplicates:
+        #     print(f" - {dup}")
 
-def process_check_directory(db_path: str, check_dir_path: str):
+
+def check_directory(db_path: str, check_dir_path: str):
     """Process files in another directory to check for duplicates"""
     for root, dirs, files in os.walk(check_dir_path):
         for file in files:
             file_path = os.path.join(root, file)
-            duplicates = check_for_duplicates(db_path, file_path)
-            if duplicates:
-                print(f"Duplicates for {file_path}:")
-                for dup in duplicates:
-                    print(f" - {dup}")
-
-
-# Example usage
-db_path = 'file_hashes.db'
-central_dir_path = '~/tasks'
-check_dir_path = './'
-
-process_central_directory(db_path, central_dir_path)
-process_check_directory(db_path, check_dir_path)
+            check_file(db_path, file_path)
+        for dir in dirs:
+            dir_path = os.path.join(root, dir)
+            check_directory(db_path, dir_path)
