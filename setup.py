@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='DupCheck',
-    version='0.1.0',
+    version='0.1.1',
     author='Kirill Krasnoshchekov',
     author_email='krvkir@gmail.com',
     description='Set a central dir, index it and check any file against this dir.',
