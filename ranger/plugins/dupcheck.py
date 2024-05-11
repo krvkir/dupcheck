@@ -1,6 +1,7 @@
 import os
 from ranger.core.linemode import LinemodeBase
 from ranger.api import register_linemode
+from ranger.api.commands import Command
 
 from dupcheck import (
     setup_database,
@@ -59,3 +60,29 @@ class DuplicatesLinemode(LinemodeBase):
                 if has_unique:
                     return True
         return False
+
+
+class duplist(Command):
+    """
+    :duplist
+
+    Runs a Python script to check the current directory for duplicates.
+    """
+    db_path = os.path.expanduser('~/.config/dupcheck/db.sqlite')
+
+    def execute(self):
+        if self.fm.thisfile.is_directory:
+            self.fm.notify(
+                "This command does not operate on directories", bad=True)
+        else:
+            file_path = self.fm.thisfile.path
+            self.fm.notify(f"Duplicates for {file_path}:")
+            duplicates = check_for_duplicates(self.db_path, file_path)
+            if duplicates:
+                for duplicate in duplicates:
+                    self.fm.notify(f"{duplicate}")
+            else:
+                self.fm.notify(f"This file is unique.")
+
+    def tab(self, tabnum):
+        return self._tab_directory_content()
