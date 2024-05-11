@@ -9,22 +9,30 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 
 def setup_database(db_path: str):
-    """ Database setup """
+    """Database setup."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
+    # Create a table for central directory.
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS file_hashes (
             path TEXT NOT NULL,
+            size INTEGER NOT NULL,
+            is_central BOOLEAN NOT NULL,
             hash TEXT NOT NULL
         )
     ''')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_hash ON file_hashes (hash)')
+    cursor.execute(
+        'CREATE INDEX IF NOT EXISTS idx_path ON file_hashes (path)')
+    cursor.execute(
+        'CREATE INDEX IF NOT EXISTS idx_hash ON file_hashes (hash)')
+    cursor.execute(
+        'CREATE INDEX IF NOT EXISTS idx_is_central ON file_hashes (is_central)')
     conn.commit()
     conn.close()
 
 
 def calculate_hash(file_path: str) -> str:
-    """Function to calculate the MD5 hash of a file"""
+    """Calculate the MD5 hash of a file."""
     hash_md5 = hashlib.md5()
     with open(file_path, "rb") as f:
         for chunk in iter(lambda: f.read(4096), b""):
@@ -32,22 +40,51 @@ def calculate_hash(file_path: str) -> str:
     return hash_md5.hexdigest()
 
 
-def save_hash(db_path: str, file_path: str, file_hash: str):
-    """Function to save file hash to the database (only used for central directory)"""
+def save_hash(
+        db_path: str, file_path: str, file_hash: str, is_central: bool = False):
+    """Save file hash to the database."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute('INSERT INTO file_hashes (path, hash) VALUES (?, ?)', (file_path, file_hash))
+    cursor.execute('''
+        INSERT OR REPLACE INTO file_hashes (path, size, is_central, hash)
+        VALUES (?, ?, ?, ?)
+    ''', (file_path, os.path.getsize(file_path), is_central, file_hash))
     conn.commit()
     conn.close()
     logging.info(f"Processed and saved: {file_path}")
 
 
-def check_for_duplicates(db_path: str, file_path: str) -> List[str]:
-    """Function to check for duplicates against the database"""
-    file_hash = calculate_hash(file_path)
+def get_cached_hash(db_path: str, file_path: str):
+    """
+    For a given file path outside the central dir, check if its hash
+    was already calculated. If so, return it.
+    """
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute('SELECT path FROM file_hashes WHERE hash = ?', (file_hash,))
+    cursor.execute('''
+        SELECT hash, size FROM file_hashes
+        WHERE path = ?
+    ''', (file_path,))
+    result = cursor.fetchone()
+    conn.close()
+    if result and result[1] == os.path.getsize(file_path):
+        return result[0]
+    return None
+
+
+def check_for_duplicates(db_path: str, file_path: str) -> List[str]:
+    """Check for duplicates against the database."""
+    # If there is such a path and file size didn't change, use cached value.
+    file_hash = get_cached_hash(db_path, file_path)
+    if not file_hash:
+        # ... if no entry found, calculate hash and save it.
+        file_hash = calculate_hash(file_path)
+        save_hash(db_path, file_path, file_hash, is_central=False)
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT path FROM file_hashes WHERE is_central AND hash = ?
+    ''', (file_hash,))
     duplicates = cursor.fetchall()
     conn.close()
     logging.info(f"Checked for duplicates: {file_path}")
@@ -55,9 +92,11 @@ def check_for_duplicates(db_path: str, file_path: str) -> List[str]:
 
 
 def process_file(db_path: str, file_path: str):
-    """Process a single file"""
-    file_hash = calculate_hash(file_path)
-    save_hash(db_path, file_path, file_hash)
+    """Process a single file from a central directory."""
+    file_hash = get_cached_hash(db_path, file_path)
+    if not file_hash:
+        file_hash = calculate_hash(file_path)
+        save_hash(db_path, file_path, file_hash, is_central=True)
 
 
 def process_central_directory(db_path: str, dir_path: str, max_workers: int=4):
